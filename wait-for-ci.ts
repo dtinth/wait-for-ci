@@ -4,6 +4,7 @@ import process from "node:process"
 
 const CHECK_INTERVAL = 30e3
 const MAX_CHECKS = 720
+const CHECK_START_GRACE_PERIOD = 60e3
 
 interface StatusCheckRollup {
   __typename: "CheckRun" | "StatusContext"
@@ -70,6 +71,8 @@ function statusEmoji(
           : "❌"
     case "IN_PROGRESS":
       return "🔄"
+    case "QUEUED":
+      return "⏳"
     case "PENDING":
       return "⏳"
     default:
@@ -156,9 +159,18 @@ async function main() {
 
   const lastState: Record<string, CheckState> = {}
   let checkCount = 0
+  let hasSeenChecks = false
+  let waitingForChecksSince: number | null = null
 
   while (checkCount < MAX_CHECKS) {
     const checks = getCheckRuns()
+    const now = Date.now()
+    if (checks.length > 0) {
+      hasSeenChecks = true
+      waitingForChecksSince = null
+    } else if (!hasSeenChecks && waitingForChecksSince === null) {
+      waitingForChecksSince = now
+    }
     const currentState: Record<string, CheckState> = {}
 
     // Build current state map
@@ -243,8 +255,27 @@ async function main() {
     const byStatus = groupChecksByStatus(checks)
     const inProgress = byStatus["IN_PROGRESS"]?.length || 0
     const pending = byStatus["PENDING"]?.length || 0
+    const queued = byStatus["QUEUED"]?.length || 0
+    const unknown = byStatus["UNKNOWN"]?.length || 0
 
-    if (inProgress === 0 && pending === 0) {
+    if (inProgress + pending + queued + unknown === 0) {
+      if (!hasSeenChecks) {
+        const elapsed = now - (waitingForChecksSince ?? now)
+        if (elapsed < CHECK_START_GRACE_PERIOD) {
+          if (changes.length === 0) {
+            const remaining = Math.ceil(
+              (CHECK_START_GRACE_PERIOD - elapsed) / 1000,
+            )
+            console.log(
+              `[${getCurrentTime()}] Waiting for checks to start... (${remaining}s)`,
+            )
+          }
+          Object.assign(lastState, currentState)
+          checkCount += 1
+          await new Promise((resolve) => setTimeout(resolve, CHECK_INTERVAL))
+          continue
+        }
+      }
       console.log(`[${getCurrentTime()}] ✅ All checks complete!`)
       console.log("")
 
@@ -294,7 +325,7 @@ async function main() {
     // Display current summary every check
     if (changes.length === 0) {
       console.log(
-        `[${getCurrentTime()}] Waiting... (In Progress: ${inProgress}, Pending: ${pending})`,
+        `[${getCurrentTime()}] Waiting... (In Progress: ${inProgress}, Pending: ${pending}, Queued: ${queued}, Unknown: ${unknown})`,
       )
     }
 
