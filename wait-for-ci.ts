@@ -1,0 +1,295 @@
+#!/usr/bin/env -S deno run --allow-run --allow-env
+import { execSync } from "node:child_process"
+import process from "node:process"
+
+const CHECK_INTERVAL = 30e3
+const MAX_CHECKS = 720
+
+interface StatusCheckRollup {
+  __typename: "CheckRun" | "StatusContext"
+  // CheckRun fields
+  workflowName?: string
+  name?: string
+  status?: string
+  conclusion?: string
+  completedAt?: string
+  detailsUrl?: string
+  startedAt?: string
+  // StatusContext fields
+  context?: string
+  state?: string
+  targetUrl?: string
+}
+
+interface CheckState {
+  status: string
+  conclusion: string
+  workflow: string
+  name: string
+  completedAt: string
+  detailsUrl?: string
+}
+
+interface Change {
+  type: "new" | "change"
+  workflow: string
+  name: string
+  status?: string
+  conclusion?: string
+  from?: string
+  to?: string
+  fromConclusion?: string
+  toConclusion?: string
+  sig: string
+  detailsUrl?: string
+}
+
+function getCheckRuns(): StatusCheckRollup[] {
+  try {
+    const output = execSync(
+      "gh pr view --json statusCheckRollup -q '.statusCheckRollup'",
+      { encoding: "utf-8" },
+    )
+    return JSON.parse(output)
+  } catch {
+    return []
+  }
+}
+
+function statusEmoji(
+  status: string,
+  conclusion: string | null | undefined,
+): string {
+  switch (status) {
+    case "COMPLETED":
+      return conclusion === "SUCCESS"
+        ? "✅"
+        : conclusion === "SKIPPED"
+          ? "⊘"
+          : "❌"
+    case "IN_PROGRESS":
+      return "🔄"
+    case "PENDING":
+      return "⏳"
+    default:
+      return "❓"
+  }
+}
+
+function groupChecksByStatus(
+  checks: StatusCheckRollup[],
+): Record<string, StatusCheckRollup[]> {
+  const grouped: Record<string, StatusCheckRollup[]> = {}
+  for (const check of checks) {
+    const status = getCheckStatus(check)
+    if (!grouped[status]) {
+      grouped[status] = []
+    }
+    grouped[status].push(check)
+  }
+  return grouped
+}
+
+function getCheckStatus(check: StatusCheckRollup): string {
+  if (check.__typename === "StatusContext") {
+    return "COMPLETED"
+  }
+  return check.status || "UNKNOWN"
+}
+
+function getCheckConclusion(check: StatusCheckRollup): string {
+  if (check.__typename === "StatusContext") {
+    return check.state || "UNKNOWN"
+  }
+  return check.conclusion || "UNKNOWN"
+}
+
+function getCheckName(check: StatusCheckRollup): string {
+  if (check.__typename === "StatusContext") {
+    return check.context || "Unknown"
+  }
+  return check.name || "Unknown"
+}
+
+function getCheckWorkflow(check: StatusCheckRollup): string {
+  if (check.__typename === "StatusContext") {
+    return "Status"
+  }
+  return check.workflowName || "Unknown"
+}
+
+function checkSignature(check: StatusCheckRollup): string {
+  const workflow = getCheckWorkflow(check)
+  const name = getCheckName(check)
+  return `${workflow}:${name}`
+}
+
+function getCurrentTime(): string {
+  const now = new Date()
+  const hours = String(now.getHours()).padStart(2, "0")
+  const minutes = String(now.getMinutes()).padStart(2, "0")
+  const seconds = String(now.getSeconds()).padStart(2, "0")
+  return `${hours}:${minutes}:${seconds}`
+}
+
+function extractJobId(detailsUrl?: string): string | null {
+  if (!detailsUrl) return null
+  const match = detailsUrl.match(/\/job\/(\d+)$/)
+  return match ? match[1] : null
+}
+
+function getJobViewCommand(detailsUrl?: string): string | null {
+  const jobId = extractJobId(detailsUrl)
+  return jobId ? `gh run view --job=${jobId}` : null
+}
+
+async function main() {
+  const prNumber = execSync("gh pr view --json number -q '.number'", {
+    encoding: "utf-8",
+  }).trim()
+
+  console.log(`🔍 Monitoring PR #${prNumber} checks...`)
+  console.log("")
+
+  const lastState: Record<string, CheckState> = {}
+  let checkCount = 0
+
+  while (checkCount < MAX_CHECKS) {
+    const checks = getCheckRuns()
+    const currentState: Record<string, CheckState> = {}
+
+    // Build current state map
+    for (const check of checks) {
+      const sig = checkSignature(check)
+      currentState[sig] = {
+        status: getCheckStatus(check),
+        conclusion: getCheckConclusion(check),
+        workflow: getCheckWorkflow(check),
+        name: getCheckName(check),
+        completedAt: check.completedAt || check.startedAt || "",
+        detailsUrl: check.detailsUrl,
+      }
+    }
+
+    // Detect changes
+    const changes: Change[] = []
+
+    // Check for status changes
+    for (const [sig, state] of Object.entries(currentState)) {
+      if (!lastState[sig]) {
+        // New check
+        changes.push({
+          type: "new",
+          workflow: state.workflow,
+          name: state.name,
+          status: state.status,
+          conclusion: state.conclusion,
+          sig,
+          detailsUrl: state.detailsUrl,
+        })
+      } else if (lastState[sig].status !== state.status) {
+        // Status change
+        changes.push({
+          type: "change",
+          workflow: state.workflow,
+          name: state.name,
+          from: lastState[sig].status,
+          to: state.status,
+          fromConclusion: lastState[sig].conclusion,
+          toConclusion: state.conclusion,
+          sig,
+          detailsUrl: state.detailsUrl,
+        })
+      }
+    }
+
+    // Display changes
+    if (changes.length > 0) {
+      console.log(`[${getCurrentTime()}] Changes detected:`)
+      for (const change of changes) {
+        if (change.type === "new") {
+          console.log(
+            `  ${statusEmoji(change.status!, change.conclusion)} ${change.workflow} > ${change.name}`,
+          )
+        } else if (change.type === "change") {
+          const fromEmoji = statusEmoji(change.from!, change.fromConclusion)
+          const toEmoji = statusEmoji(change.to!, change.toConclusion)
+          console.log(
+            `  ${fromEmoji} → ${toEmoji} ${change.workflow} > ${change.name}`,
+          )
+        }
+      }
+      console.log("")
+    }
+
+    // Check if all done
+    const byStatus = groupChecksByStatus(checks)
+    const inProgress = byStatus["IN_PROGRESS"]?.length || 0
+    const pending = byStatus["PENDING"]?.length || 0
+
+    if (inProgress === 0 && pending === 0) {
+      console.log(`[${getCurrentTime()}] ✅ All checks complete!`)
+      console.log("")
+
+      // Summary
+      for (const [status, statusChecks] of Object.entries(byStatus)) {
+        if (status === "COMPLETED") {
+          continue
+        }
+
+        const byConclusion: Record<string, StatusCheckRollup[]> = {}
+        for (const check of statusChecks) {
+          const conclusion = getCheckConclusion(check)
+          if (!byConclusion[conclusion]) {
+            byConclusion[conclusion] = []
+          }
+          byConclusion[conclusion].push(check)
+        }
+
+        for (const [conclusion, group] of Object.entries(byConclusion)) {
+          console.log(`${status}: ${conclusion} (${group.length})`)
+        }
+      }
+
+      const completed = byStatus["COMPLETED"] || []
+      const byConclusion: Record<string, StatusCheckRollup[]> = {}
+      for (const check of completed) {
+        const conclusion = getCheckConclusion(check)
+        if (!byConclusion[conclusion]) {
+          byConclusion[conclusion] = []
+        }
+        byConclusion[conclusion].push(check)
+      }
+
+      for (const [conclusion, group] of Object.entries(byConclusion)) {
+        const emoji =
+          conclusion === "SUCCESS"
+            ? "✅"
+            : conclusion === "SKIPPED"
+              ? "⊘"
+              : "❌"
+        console.log(`${emoji} ${conclusion}: ${group.length}`)
+      }
+
+      break
+    }
+
+    // Display current summary every check
+    if (changes.length === 0) {
+      console.log(
+        `[${getCurrentTime()}] Waiting... (In Progress: ${inProgress}, Pending: ${pending})`,
+      )
+    }
+
+    Object.assign(lastState, currentState)
+    checkCount += 1
+    await new Promise((resolve) => setTimeout(resolve, CHECK_INTERVAL))
+  }
+
+  if (checkCount >= MAX_CHECKS) {
+    console.error(`❌ Timeout waiting for checks (${MAX_CHECKS}s)`)
+    process.exit(1)
+  }
+}
+
+await main()
