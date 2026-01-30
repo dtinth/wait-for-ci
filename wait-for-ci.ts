@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-run=gh --allow-env
+#!/usr/bin/env -S deno run --allow-run --allow-env
 import { execFileSync } from "node:child_process"
 import process from "node:process"
 
@@ -214,12 +214,26 @@ async function main() {
           console.log(
             `  ${statusEmoji(change.status!, change.conclusion)} ${change.workflow} > ${change.name}`,
           )
+          // Show job view command if failed
+          if (change.conclusion === "FAILURE") {
+            const cmd = getJobViewCommand(change.detailsUrl)
+            if (cmd) {
+              console.log(`     → ${cmd}`)
+            }
+          }
         } else if (change.type === "change") {
           const fromEmoji = statusEmoji(change.from!, change.fromConclusion)
           const toEmoji = statusEmoji(change.to!, change.toConclusion)
           console.log(
             `  ${fromEmoji} → ${toEmoji} ${change.workflow} > ${change.name}`,
           )
+          // Show job view command if changed to failure
+          if (change.toConclusion === "FAILURE") {
+            const cmd = getJobViewCommand(change.detailsUrl)
+            if (cmd) {
+              console.log(`     → ${cmd}`)
+            }
+          }
         }
       }
       console.log("")
