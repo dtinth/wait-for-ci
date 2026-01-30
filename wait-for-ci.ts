@@ -1,5 +1,5 @@
-#!/usr/bin/env -S deno run --allow-run --allow-env
-import { execSync } from "node:child_process"
+#!/usr/bin/env -S deno run --allow-run=gh --allow-env
+import { execFileSync } from "node:child_process"
 import process from "node:process"
 
 const CHECK_INTERVAL = 30e3
@@ -46,8 +46,9 @@ interface Change {
 
 function getCheckRuns(): StatusCheckRollup[] {
   try {
-    const output = execSync(
-      "gh pr view --json statusCheckRollup -q '.statusCheckRollup'",
+    const output = execFileSync(
+      "gh",
+      ["pr", "view", "--json", "statusCheckRollup", "-q", ".statusCheckRollup"],
       { encoding: "utf-8" },
     )
     return JSON.parse(output)
@@ -144,9 +145,11 @@ function getJobViewCommand(detailsUrl?: string): string | null {
 }
 
 async function main() {
-  const prNumber = execSync("gh pr view --json number -q '.number'", {
-    encoding: "utf-8",
-  }).trim()
+  const prNumber = execFileSync(
+    "gh",
+    ["pr", "view", "--json", "number", "-q", ".number"],
+    { encoding: "utf-8" },
+  ).trim()
 
   console.log(`🔍 Monitoring PR #${prNumber} checks...`)
   console.log("")
