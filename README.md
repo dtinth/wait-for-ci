@@ -28,3 +28,5 @@ npx skills add dtinth/agent-skills --skill wait-for-ci --global
 With this skill, your coding agent will be able to debug failed CI builds autonomously:
 
 <img width="659" height="858" alt="image" src="https://github.com/user-attachments/assets/9d481074-dc0a-4b16-be3a-091f6528e64a" />
+
+<img width="864" height="1015" alt="image" src="https://github.com/user-attachments/assets/c4d06109-e08d-4d66-a1e1-6096a9d34662" />
