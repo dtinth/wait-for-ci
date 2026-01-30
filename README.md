@@ -17,8 +17,14 @@ This command:
 - Periodically polls and prints status updates and any changes.
 - When all checks are finished, prints a summary of results, and exits.
 
-## Add the skill to your coding agent
+## Equipping
+
+Use the [skills CLI](https://github.com/vercel-labs/skills) to equip your coding agent with the skill to wait for CI to finish:
 
 ```sh
 npx skills add dtinth/agent-skills --skill wait-for-ci --global
 ```
+
+With this skill, your coding agent will be able to debug failed CI builds autonomously:
+
+<img width="659" height="858" alt="image" src="https://github.com/user-attachments/assets/9d481074-dc0a-4b16-be3a-091f6528e64a" />
