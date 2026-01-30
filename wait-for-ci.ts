@@ -335,7 +335,7 @@ async function main() {
   }
 
   if (checkCount >= MAX_CHECKS) {
-    console.error(`❌ Timeout waiting for checks (${MAX_CHECKS}s)`)
+    console.error(`❌ Timeout waiting for checks (${MAX_CHECKS} checks)`)
     process.exit(1)
   }
 }
