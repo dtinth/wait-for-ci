@@ -136,7 +136,21 @@ function getCurrentTime(): string {
   return `${hours}:${minutes}:${seconds}`
 }
 
+function extractActionsJobDetails(
+  detailsUrl?: string,
+): { owner: string; repo: string; jobId: string } | null {
+  if (!detailsUrl) return null
+  const match = detailsUrl.match(
+    /github\.com\/([^/]+)\/([^/]+)\/actions\/runs\/\d+\/job\/(\d+)/,
+  )
+  if (!match) return null
+  const [, owner, repo, jobId] = match
+  return { owner, repo, jobId }
+}
+
 function extractJobId(detailsUrl?: string): string | null {
+  const details = extractActionsJobDetails(detailsUrl)
+  if (details) return details.jobId
   if (!detailsUrl) return null
   const match = detailsUrl.match(/\/job\/(\d+)$/)
   return match ? match[1] : null
@@ -148,12 +162,9 @@ function getJobViewCommand(detailsUrl?: string): string | null {
 }
 
 function getAnnotationsCommand(detailsUrl?: string): string | null {
-  if (!detailsUrl) return null
-  const match = detailsUrl.match(
-    /github\.com\/([^/]+)\/([^/]+)\/actions\/runs\/\d+\/job\/(\d+)/,
-  )
-  if (!match) return null
-  const [, owner, repo, jobId] = match
+  const details = extractActionsJobDetails(detailsUrl)
+  if (!details) return null
+  const { owner, repo, jobId } = details
   return `gh api '/repos/${owner}/${repo}/check-runs/${jobId}/annotations'`
 }
 
