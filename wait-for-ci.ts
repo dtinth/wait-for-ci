@@ -147,6 +147,16 @@ function getJobViewCommand(detailsUrl?: string): string | null {
   return jobId ? `gh run view --job=${jobId}` : null
 }
 
+function getAnnotationsCommand(detailsUrl?: string): string | null {
+  if (!detailsUrl) return null
+  const match = detailsUrl.match(
+    /github\.com\/([^/]+)\/([^/]+)\/actions\/runs\/\d+\/job\/(\d+)/,
+  )
+  if (!match) return null
+  const [, owner, repo, jobId] = match
+  return `gh api '/repos/${owner}/${repo}/check-runs/${jobId}/annotations'`
+}
+
 async function main() {
   const prNumber = execFileSync(
     "gh",
@@ -232,6 +242,10 @@ async function main() {
             if (cmd) {
               console.log(`     → ${cmd}`)
             }
+            const annotationsCmd = getAnnotationsCommand(change.detailsUrl)
+            if (annotationsCmd) {
+              console.log(`     → ${annotationsCmd}`)
+            }
           }
         } else if (change.type === "change") {
           const fromEmoji = statusEmoji(change.from!, change.fromConclusion)
@@ -244,6 +258,10 @@ async function main() {
             const cmd = getJobViewCommand(change.detailsUrl)
             if (cmd) {
               console.log(`     → ${cmd}`)
+            }
+            const annotationsCmd = getAnnotationsCommand(change.detailsUrl)
+            if (annotationsCmd) {
+              console.log(`     → ${annotationsCmd}`)
             }
           }
         }
