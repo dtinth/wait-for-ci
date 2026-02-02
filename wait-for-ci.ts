@@ -136,15 +136,35 @@ function getCurrentTime(): string {
   return `${hours}:${minutes}:${seconds}`
 }
 
-function extractJobId(detailsUrl?: string): string | null {
+function extractActionsJobDetails(
+  detailsUrl?: string,
+): { owner: string; repo: string; jobId: string } | null {
   if (!detailsUrl) return null
-  const match = detailsUrl.match(/\/job\/(\d+)$/)
+  const match = detailsUrl.match(
+    /github\.com\/([^/]+)\/([^/]+)\/actions\/runs\/\d+\/job\/(\d+)/,
+  )
+  if (!match) return null
+  const [, owner, repo, jobId] = match
+  return { owner, repo, jobId }
+}
+
+function extractJobId(detailsUrl?: string): string | null {
+  const details = extractActionsJobDetails(detailsUrl)
+  if (details) return details.jobId
+  const match = detailsUrl?.match(/\/job\/(\d+)$/)
   return match ? match[1] : null
 }
 
 function getJobViewCommand(detailsUrl?: string): string | null {
   const jobId = extractJobId(detailsUrl)
   return jobId ? `gh run view --job=${jobId}` : null
+}
+
+function getAnnotationsCommand(detailsUrl?: string): string | null {
+  const details = extractActionsJobDetails(detailsUrl)
+  if (!details) return null
+  const { owner, repo, jobId } = details
+  return `gh api '/repos/${owner}/${repo}/check-runs/${jobId}/annotations'`
 }
 
 async function main() {
@@ -232,6 +252,10 @@ async function main() {
             if (cmd) {
               console.log(`     → ${cmd}`)
             }
+            const annotationsCmd = getAnnotationsCommand(change.detailsUrl)
+            if (annotationsCmd) {
+              console.log(`     → ${annotationsCmd}`)
+            }
           }
         } else if (change.type === "change") {
           const fromEmoji = statusEmoji(change.from!, change.fromConclusion)
@@ -244,6 +268,10 @@ async function main() {
             const cmd = getJobViewCommand(change.detailsUrl)
             if (cmd) {
               console.log(`     → ${cmd}`)
+            }
+            const annotationsCmd = getAnnotationsCommand(change.detailsUrl)
+            if (annotationsCmd) {
+              console.log(`     → ${annotationsCmd}`)
             }
           }
         }
