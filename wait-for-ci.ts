@@ -151,8 +151,7 @@ function extractActionsJobDetails(
 function extractJobId(detailsUrl?: string): string | null {
   const details = extractActionsJobDetails(detailsUrl)
   if (details) return details.jobId
-  if (!detailsUrl) return null
-  const match = detailsUrl.match(/\/job\/(\d+)$/)
+  const match = detailsUrl?.match(/\/job\/(\d+)$/)
   return match ? match[1] : null
 }
 
